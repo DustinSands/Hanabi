@@ -15,6 +15,7 @@ import timeit
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
+import keras as K
 from keras import models, layers, optimizers, losses, regularizers
 
 from experience_replay import SequentialDequeMemory
@@ -23,13 +24,18 @@ from envs import Hanabi as hb
 
 import helper_functions
 
+# CONFIG
+model_directory = r'C:\Users\Racehorse\Google Drive\Programming\ML\models'
+
+# customizable process state function (for comparing usings tensors, arrays,
+# lists, etc.)
 def process_state(obs):
   return np.array(obs)
 
 def build_hanabi_model(env, action_space, name = None, learning_rate = None, 
-                       hidden_layers = [100,50,50,50,20,20], l1 = 0.0001, 
+                       hidden_layers = [100,50,50,50,20,20], l1 = 0.0001,
                        optimizer = 'adagrad'):
-  """Builds a model to be used for hanabi."""
+  """Builds the Q model to be used for hanabi."""
   model = models.Sequential()
   model.add(layers.Dense(hidden_layers[0], 
                          input_dim = (env.get_input_dim()),
@@ -64,7 +70,7 @@ class player():
   experience tuple for every round after first.  Has a final round function for
   returning it's previous obs and action (final obs, reward to be added by 
   wrapper for experience tuple."""
-  def __init__(self, env, model, policy, mem_size, action_map, playerID):
+  def __init__(self, env, model, policy, mem_size, action_map, playerID, integrated):
     self.memory = SequentialDequeMemory(size = mem_size)
     self.env = env
     self.model = model
@@ -72,6 +78,7 @@ class player():
     self.action_map = action_map
     self.ID = playerID
     self.obs = None
+    self.integrated = integrated
     
   def get_memory_batch(self, batch_size):
     """Get random experiences from memory for training."""
@@ -88,7 +95,10 @@ class player():
     # assert self.ID == obs[0]
     helper_functions.timer['player'].start()
     if type(self.obs) != type(None):
-      experience = (self.obs, self.policy_action, reward, obs, 0)
+      if self.integrated:
+        experience = (self.obs, [self.policy_action, reward, 0], obs)
+      else:
+        experience = (self.obs, self.policy_action, reward, obs, 0)
       self.add_to_memory(experience)
     self.obs = obs
     processed = np.reshape(obs,(1,-1))
@@ -109,7 +119,10 @@ class player():
     """Call this function when the game is done to pass the final obs (and 
     any associated rewards) to the player for storage."""
     if type(self.obs) != type(None):
-      experience = (self.obs, self.policy_action, reward, final_obs, 1)
+      if self.integrated:
+        experience = (self.obs, [self.policy_action, reward, 0], final_obs)
+      else:
+        experience = (self.obs, self.policy_action, reward, final_obs, 0)
       self.memory.add_to_memory(experience)
       self.obs = None
     
@@ -124,29 +137,41 @@ class player():
   
   
 class wrapper():
-  """Class for training the model. Requires parameters:
-    name: name of agent for saving / loading from checkpoint
-    iter: iterations
-    discount: the discount factor
-    lr: the learning rate (alpha)
-    behavior: the behavior policy for exploring
+  """Class for training the model. Parameters:
+    name: name of agent for saving / loading from checkpoint (optional)
+    alpha: the discount factor
+    lr: the learning rate (optimizer)
+    behavior: the bandit algorithm to use
     policy_param: parameters for the behavior policy
     hidden_layers: list of int for hidden layers
     l1: l1 regularization parameter (0 is disabled)
+    players: number of players
+    suits: how many / what types of suits to use (for variant games)
+    optimizer: which optimizer to use
+    mem_size: the maximum number of experiences to store per player
+    max_steps: The max number of turns per game
+    plot_frequency: number of epochs between plotting
+    discrete_agents: True means that there is a different agent for each player
+      (False means that the next state in experiences is from P+1, rather than
+       the state P sees on their next turn)
+    DDQN: Whether to use the Dueling DQN model
+    integrated: Whether to make an integrated training model (for GPU acceleration)
+    
     """
   def __init__(self, name = None, discount = 0.9, lr = None, alpha = 1,
           policy_type = 'greedy', policy_param = {'eps':0.05, 'min_eps':0.01,
           'eps_decay':0.9999}, env = hb, suits = 'rgbyp', players = 3, 
           mode = 'standard', hidden_layers = [200,200,200,150,100], batch_size = 512,
           l1 = 0, optimizer = 'adagrad', mem_size = 2000, max_steps = 130,
-          plot_frequency = 1, discrete_agents = True, DDQN = False):
+          plot_frequency = 1, discrete_agents = True, DDQN = False, 
+          integrated = True):
   
     self.name = name
+    self.weights_dir = model_directory
     # if self.name == None:
     #   date = str(time.strftime('%m%d-%H%M'))
     #   self.name = f'{date}-{mode}-{suits}'
     if self.name != None:
-      self.weights_dir = r'C:\Users\Racehorse\Google Drive\Programming\ML\models'
       self.model_file = os.path.join(self.weights_dir,self.name+'.h5')
     self.env = hb.hanabi_env(players, suits, mode)
     self.iterations_done = 0
@@ -177,23 +202,125 @@ class wrapper():
     self.action_map = self._create_action_map()
     self.action_space = len(self.action_map)
     self.action_totals = [0]*self.action_space
+    self.integrated = integrated
     move_func = self._create_valid_moves_function()
     self.policy = BehaviorPolicyV2(self.action_space, move_func, 
                                  policy_type = policy_type, 
                                  param = policy_param) 
     if self.name != None and os.path.exists(self.model_file):
       self.online_model = models.load_model(self.model_file)
+      self.target_model = models.load_model(self.model_file)
     else:
       self.online_model = build_hanabi_model(self.env, self.action_space, 
                                            self.name, self.learning_rate, 
                                            self.hidden_layers, self.l1, 
                                            self.optimizer)
-    self.target_model = copy.copy(self.online_model)
+      self.target_model = build_hanabi_model(self.env, self.action_space, 
+                                           self.name, self.learning_rate, 
+                                           self.hidden_layers, self.l1, 
+                                           self.optimizer)
+    self._freeze_target_model()
+    if self.integrated:
+      self.training_model = self._create_training_model(batch_size*self.players)
     self.player = []
-    
     for playerID in range(self.players):
       self.player.append(player(self.env, self.online_model, self.policy.choose_action, 
-                                     self.mem_size, self.action_map, playerID))
+                                     self.mem_size, self.action_map, playerID,
+                                     self.integrated))
+
+  def _freeze_target_model(self):
+    for layer in self.target_model.layers:
+      layer.trainable = False
+      
+  def _create_training_model(self, batch_size, optimizer = 'adadelta', learning_rate = None):
+    # action = K.Input(batch_shape = (1,), dtype = tf.int32, name = 'action')
+    # reward = K.Input(batch_shape = (1,), dtype = tf.float32, name = 'reward')
+    ard = K.Input(shape = (3,), dtype = tf.int32, name = 'ard')
+    S_t = K.Input(shape = (self.env.get_input_dim(),), name = 'S_t')
+    S_t1 = K.Input(shape = (self.env.get_input_dim(),), name = 'S_t1')
+    Q_t = self.online_model(S_t)
+    if self.DDQN:
+      Q_t1 = self.online_model(S_t1)
+      Q_tar = self.target_model(S_t1)
+    else:
+      Q_t1 = self.target_model(S_t1)
+      
+    @tf.custom_gradient
+    def no_grad(value):
+      def zero(dy):
+        return dy*0
+      return value, zero
+    
+    if self.DDQN:
+      class combine_Q(K.layers.Layer):
+        def __init__(self, gamma,
+                      **kwargs):
+          super(combine_Q, self).__init__(**kwargs)
+          self.supports_masking = False
+          self.gamma = gamma
+          
+        def build(self, input_shape):
+          input_dim = [shape[-1] for shape in input_shape]
+          self.bias = None
+          self.built = True
+          super(combine_Q, self).build(input_shape)
+                               
+        def call(self, inputs):
+          Q_t, ard, Q_t1, Q_tar  = inputs
+          argmax = tf.expand_dims(tf.math.argmax(Q_t1, axis = 1), axis = -1)
+          Q_t1_max = tf.gather(Q_tar, argmax, axis = 1, batch_dims = 1)
+          new_Qta = tf.math.add(tf.math.multiply(self.gamma, Q_t1_max), ard[:,1])
+          new_Q = tf.tensor_scatter_nd_update(Q_t, ard[:,0], new_Qta)
+          return tf.stop_gradient(new_Q)
+        
+        
+      new_Q = combine_Q(self.gamma)([Q_t, ard, Q_t1, Q_tar])
+      
+    else:
+      class combine_Q(K.layers.Layer):
+        def __init__(self, gamma,
+                      **kwargs):
+          super(combine_Q, self).__init__(**kwargs)
+          self.supports_masking = False
+          self.gamma = gamma
+          
+        def build(self, input_shape):
+          self.index = tf.range(0, batch_size)
+          self.bias = None
+          self.built = True
+          super(combine_Q, self).build(input_shape)
+                              
+        def call(self, inputs):
+          Q_t, ard, Q_t1 = inputs
+          Q_t1_max = tf.math.reduce_max(Q_t1, axis = 1)
+          new_Qta = tf.math.add(tf.math.multiply(self.gamma, Q_t1_max), tf.cast(ard[:,1], tf.float32))
+          size = tf.shape(ard)[0]
+          index = tf.range(0, size)
+          indices= tf.stack([index, ard[:,0]], axis = 1)
+          new_Q = tf.tensor_scatter_nd_update(Q_t, indices, new_Qta)
+          return tf.stop_gradient(new_Q)
+        
+      new_Q = combine_Q(self.gamma, name = 'new_Q')([Q_t, ard, Q_t1])
+      
+    output = K.layers.Subtract()([Q_t, new_Q])
+    
+    training_model = K.Model([S_t, ard, S_t1], [output])
+    if optimizer == 'adagrad':
+      optimizer = optimizers.Adagrad
+    elif optimizer == 'adam':
+      optimizer = optimizers.Adam
+    elif optimizer == 'adadelta':
+      optimizer = optimizers.Adadelta
+    else: raise ValueError('optimizer not implemented!')
+    
+    if learning_rate== None:
+      training_model.compile(loss=losses.mean_absolute_error, optimizer = optimizer())
+    else:
+      training_model.compile(loss=losses.mean_absolute_error, optimizer = optimizer(
+        lr = learning_rate))
+    return training_model
+    
+    
 
   def _sync_models(self):
     """Sets target model weights to online model weights."""
@@ -245,10 +372,13 @@ class wrapper():
     return action_map
   
   def train(self, epochs = 10, batch_size = None):
+    """Trains the model for the specified number of epochs.  Optionally, can also
+    be used to change the batch size."""
     helper_functions.timer['total'].start()
     if batch_size != None:
       self.batch_size = batch_size
     for epoch in range(epochs):
+      #Reset stats
       epi_history = {}
       epi_history['steps'] = []
       epi_history['rewards'] = []
@@ -256,6 +386,7 @@ class wrapper():
       epi_history['rps'] = []
       self.loss_history = []
       for episode in range(self.epoch_size):
+        #Initialize and reset the episode
         reward = [0]*self.players
         episode_reward = 0
         discounted_episode_reward = 0
@@ -264,10 +395,10 @@ class wrapper():
         current_player = obs[0]
         helper_functions.timer['step'].start()
         for step in range(self.max_steps):
-          
+          # Passes the observation to the agent and has it play a turn.
+          # The agent returns information from the environment
           obs, step_reward, done, action = self.player[
             current_player].play_turn(obs, reward[current_player])
-          self.action_totals[action] += 1
           for playerID in range(self.players):
             reward[playerID] += step_reward
           reward[current_player] = step_reward
@@ -332,7 +463,6 @@ class wrapper():
         # current_player = int(obs[0])
         obs, step_reward, done, action = self.player[
           current_player].pure_exploit_turn(obs)
-        self.action_totals[action] += 1
         episode_reward += step_reward
         discounted_episode_reward *= self.gamma
         discounted_episode_reward += step_reward
@@ -374,46 +504,67 @@ class wrapper():
     return True
   
   def _update_online_model(self, experience):
-    """Update Q network"""
-    helper_functions.timer['prep'].start()
-    from_obs, action, reward, to_obs, done = zip(*experience)
-    # Turn them into arrays (isntead of list of arrays)
-    helper_functions.timer['prep_1'].start()
-    from_obs_array = np.array(from_obs)
-    to_obs_array = np.array(to_obs)
-    helper_functions.timer['prep_1'].stop()
-    helper_functions.timer['prep'].stop()
-    for step in range(1):
+    if self.integrated:
+      """Update Q network"""
       helper_functions.timer['prep'].start()
-      # Calculate Q Values
+      from_obs, ard, to_obs = zip(*experience)
+      # Turn them into arrays (isntead of list of arrays)
+      helper_functions.timer['prep_1'].start()
+      from_obs_array = np.array(from_obs)
+      to_obs_array = np.array(to_obs)
+      helper_functions.timer['prep_1'].stop()
       helper_functions.timer['prep_2'].start()
-      if self.DDQN:
-        next_Q_values = np.array(self.online_model.predict_on_batch(to_obs_array))
-      Q_values = np.array(self.online_model.predict_on_batch(from_obs_array))
-      target_Q_values = np.array(self.target_model.predict_on_batch(to_obs_array))
+      ard_array = np.array(ard)
       helper_functions.timer['prep_2'].stop()
-      # Modify predictions based on rewards
       helper_functions.timer['prep_3'].start()
-      if self.DDQN:
-        argmax = np.expand_dims(np.argmax(next_Q_values, axis = 1), axis = -1)
-        max_for_next_obs = np.take_along_axis(target_Q_values, argmax, axis = 1)
-      else:
-        max_for_next_obs = np.amax(target_Q_values, axis = 1)
-      for index in range(len(experience)):
-        Q_values[index][action[index]] *= 1-self.alpha
-        if done[index]:
-          Q_values[index][action[index]] += self.alpha*reward[index]
-        else:
-          calc_action_value = self.alpha*(reward[index] + self.gamma*max_for_next_obs[index])
-          Q_values[index][action[index]]+=calc_action_value
+      inputs = [from_obs_array, ard_array, to_obs_array]
       helper_functions.timer['prep_3'].stop()
       helper_functions.timer['prep'].stop()
       helper_functions.timer['train'].start()
-      loss = self.online_model.train_on_batch(from_obs_array, 
-                                              Q_values)
+      loss = self.training_model.train_on_batch(inputs, 
+                                            np.zeros((len(experience), self.action_space)))
+      self.loss_history.append(loss)
       helper_functions.timer['train'].stop()
-    self.loss_history.append(loss)
-    
+    else:
+      """Update Q network"""
+      helper_functions.timer['prep'].start()
+      from_obs, action, reward, to_obs, done = zip(*experience)
+      # Turn them into arrays (isntead of list of arrays)
+      helper_functions.timer['prep_1'].start()
+      from_obs_array = np.array(from_obs)
+      to_obs_array = np.array(to_obs)
+      helper_functions.timer['prep_1'].stop()
+      helper_functions.timer['prep'].stop()
+      for step in range(1):
+        helper_functions.timer['prep'].start()
+        # Calculate Q Values
+        helper_functions.timer['prep_2'].start()
+        if self.DDQN:
+          next_Q_values = np.array(self.online_model.predict_on_batch(to_obs_array))
+        Q_values = np.array(self.online_model.predict_on_batch(from_obs_array))
+        target_Q_values = np.array(self.target_model.predict_on_batch(to_obs_array))
+        helper_functions.timer['prep_2'].stop()
+        # Modify predictions based on rewards
+        helper_functions.timer['prep_3'].start()
+        if self.DDQN:
+          argmax = np.expand_dims(np.argmax(next_Q_values, axis = 1), axis = -1)
+          max_for_next_obs = np.take_along_axis(target_Q_values, argmax, axis = 1)
+        else:
+          max_for_next_obs = np.amax(target_Q_values, axis = 1)
+        for index in range(len(experience)):
+          Q_values[index][action[index]] *= 1-self.alpha
+          if done[index]:
+            Q_values[index][action[index]] += self.alpha*reward[index]
+          else:
+            calc_action_value = self.alpha*(reward[index] + self.gamma*max_for_next_obs[index])
+            Q_values[index][action[index]]+=calc_action_value
+        helper_functions.timer['prep_3'].stop()
+        helper_functions.timer['prep'].stop()
+        helper_functions.timer['train'].start()
+        loss = self.online_model.train_on_batch(from_obs_array, 
+                                                Q_values)
+        helper_functions.timer['train'].stop()
+      self.loss_history.append(loss)
 
   def save_model(self, name=None):
     """ Stores the model for future use."""
@@ -457,11 +608,15 @@ def print_ave_param():
 
 
 if __name__=='__main__':
-  instance = wrapper(discrete_agents = True, policy_type = 'epsilon_decay', policy_param ={'eps':0.1, 'eps_decay':0.9999, 'min_eps':0.002})
-  instance.train(10)
-  instance.evaluate(100)
-  helper_functions.print_times()
-  pass
+  # Repeatable testing of standard training model to compare integrated and non-integrated
+  for i in range(5):
+    ins = wrapper(batch_size = 512, discrete_agents = True, 
+                  policy_type = 'epsilon_decay', 
+                  policy_param ={'eps':0.1, 'eps_decay':0.9999, 'min_eps':0.002},
+                  integrated = True)
+    ins.train(10)
+    ins.evaluate(100)
+  helper_functions.print_integrated_times()
 
 
 
