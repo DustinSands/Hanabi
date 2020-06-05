@@ -157,7 +157,7 @@ def print_times():
   print(f'Plot time:{percent["plot"]}%')
   for name in timer_list:
     timer[name].reset()
-    
+
 def print_integrated_times():
   """Helper function to print how long the agent has spent doing various tasks.
   Resets all timers at end. 
@@ -179,5 +179,9 @@ def print_integrated_times():
   print(f'--Inputs Time:{percent["prep_3"]}%')
   print(f'-Train Time:{percent["train"]}%')
   print(f'Plot time:{percent["plot"]}%')
+  for name in timer_list:
+    timer[name].reset()
+    
+def reset_times():
   for name in timer_list:
     timer[name].reset()
