@@ -1,7 +1,10 @@
 # Hanabi
 The purpose of this code is to implement every version of reinforcement learning that I study so that I can 
+
 -Learn RL
+
 -Understand each implementation
+
 -Compare their performance to deepen my understanding
 
 This will be done with an environment (created by me) that plays Hanabi, but should be generalizable to any environment.
