@@ -44,5 +44,5 @@ See the comments for the options under wrapper for a description of available
 options.
 
 ## In progress:
-- GPU acceleration
+- Full GPU acceleration (including target generation)
 - Dueling DQN
