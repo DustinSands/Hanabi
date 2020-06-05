@@ -43,6 +43,6 @@ instance.train(1)
 See the comments for the options under wrapper for a description of available
 options.
 
-In progress:
+## In progress:
 - GPU acceleration
 - Dueling DQN
