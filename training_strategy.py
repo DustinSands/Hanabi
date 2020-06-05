@@ -14,22 +14,11 @@ from keras import optimizers, losses
 import helper_functions
 
 
-def get_optimizer(opt_string):
-  if opt_string == 'adagrad':
-    optimizer = optimizers.Adagrad
-  elif opt_string == 'adam':
-    optimizer = optimizers.Adam
-  elif opt_string == 'adadelta':
-    optimizer = optimizers.Adadelta
-  elif type(opt_string)==str:
-    raise ValueError('Optimizer not implemented!')
-  else: optimizer = opt_string #If optimizer was passed directly
-  return optimizer
+
 
 def build_accelerated_model(DoDQN, input_dim, online_model, target_model, batch_size, 
-               optimizer = 'adadelta', learning_rate = None, gamma = 1):
-  
-  optimizer = get_optimizer(optimizer)
+               optimizer = 'adagrad', learning_rate = None, gamma = 1):
+
   # action = K.Input(batch_shape = (1,), dtype = tf.int32, name = 'action')
   # reward = K.Input(batch_shape = (1,), dtype = tf.float32, name = 'reward')
   ard = K.Input(shape = (3,), dtype = tf.int32, name = 'ard')
@@ -92,7 +81,8 @@ def build_accelerated_model(DoDQN, input_dim, online_model, target_model, batch_
       input1, input2 = inputs
       difference = tf.math.subtract(input1, input2)
       absolute = tf.math.abs(difference)
-      return absolute
+      loss = tf.math.reduce_mean(absolute, axis = 1)
+      return loss
     
   new_Q = combine_Q(gamma)([Q_t, ard, Q_t1, Q_tar])
   # diff = K.layers.Subtract()([Q_t, new_Q])
@@ -102,12 +92,14 @@ def build_accelerated_model(DoDQN, input_dim, online_model, target_model, batch_
   training_model = K.Model([S_t, ard, S_t1], [output])
   
   if learning_rate== None:
-    training_model.compile(loss=losses.mean_absolute_error, optimizer = optimizer())
+    training_model.compile(loss=my_loss_fn, optimizer = optimizer)
   else:
-    training_model.compile(loss=losses.mean_absolute_error, optimizer = optimizer(
-      lr = learning_rate))
+    training_model.compile(loss=my_loss_fn, optimizer = optimizer)
   return training_model
 
+def my_loss_fn(y_true, y_pred):
+  return y_pred
+  # return tf.math.reduce_sum(y_pred, axis = -1)
 
 def get_accelerated_update_strategy(action_space, training_model):
   def update_strategy(experience):
@@ -128,7 +120,9 @@ def get_accelerated_update_strategy(action_space, training_model):
     helper_functions.timer['prep'].stop()
     helper_functions.timer['train'].start()
     loss = training_model.train_on_batch(inputs, 
-                                          np.zeros((len(experience), action_space)))
+                                          # np.zeros((len(experience), action_space)))
+                                          np.zeros(len(experience)))
+                                          # np.array([0]))
     helper_functions.timer['train'].stop()
     return loss
   return update_strategy
@@ -177,5 +171,5 @@ def get_CPU_update_strategy(alpha, gamma, DoDQN, online_model, target_model):
   return update_strategy
 
 if __name__ == '__main__':
-  from main import run_test
-  run_test()
+  import main
+  main.compare_accelerated(0, 0, 2)

@@ -8,6 +8,12 @@ Created on Sun Apr  5 13:32:40 2020
 
 import numpy as np
 
+"""
+Contains the bandit algorithm code
+Note that when picking an exploration action, only valid moves are selected from
+('greedy' and 'epsilon_decay' are implemented)
+
+"""
 
 
 class BehaviorPolicy:
@@ -36,6 +42,12 @@ class BehaviorPolicy:
      
     
   def eps_decay_pol(self, values, playerID):
+    """Decays epsilon over time.
+    Required parameters:
+      min_eps: the minimum epsilon value
+      eps_decay: the decay rate
+      eps: the initial epsilon value
+    """
     valid_moves = self.move_func(playerID)
     random_action_prob = self.eps / sum(valid_moves)
     action_vector = [x * random_action_prob for x in valid_moves]
@@ -49,6 +61,10 @@ class BehaviorPolicy:
 
   
   def eps_greedy_pol(self, values, playerID):
+    """Constant epsilon value
+    Required parameters:
+      eps: the initial epsilon value
+    """
     valid_moves = self.move_func(playerID)
     random_action_prob = self.eps / sum(valid_moves)
     action_vector = [x * random_action_prob for x in valid_moves]
