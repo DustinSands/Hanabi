@@ -4,6 +4,8 @@ Created on Tue Jun  2 06:03:25 2020
 
 @author: Racehorse
 """
+import os
+
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,17 +29,34 @@ helper_functions.timer_list = ['replay','player', 'predict', 'step',
 for name in helper_functions.timer_list:
   helper_functions.timer[name] = helper_functions.time_tracker()
 
+def get_optimizer(opt_string, lr):
+  if opt_string == 'adagrad':
+    optimizer = optimizers.Adagrad
+  elif opt_string == 'adam':
+    optimizer = optimizers.Adam
+  elif opt_string == 'adadelta':
+    optimizer = optimizers.Adadelta
+  elif opt_string == 'SGD':
+    optimizer = optimizers.SGD
+  elif type(opt_string)==str:
+    raise ValueError('Optimizer not implemented!')
+  else: optimizer = opt_string #If optimizer was passed directly
+  if lr != None: optimizer = optimizer(learning_rate = lr)
+  else: optimizer = optimizer()
+  return optimizer
+
 class wrapper():
   """Class for training the model. Parameters:
     name: name of agent for saving / loading from checkpoint (optional)
-    alpha: the discount factor
-    lr: the learning rate (optimizer)
-    behavior: the bandit algorithm to use
+    discount: the discount factor (gamma, default 0.9)
+    alpha: how much the Q values should be updated each training batch (default 1)
+    lr: the learning rate (optimizer, default None of optimizer-specific default)
+    behavior: the bandit algorithm to use (see behavior_policy to find which are implemented)
     policy_param: parameters for the behavior policy
     hidden_layers: list of int for hidden layers
     l1: l1 regularization parameter (0 is disabled)
     players: number of players
-    suits: how many / what types of suits to use (for variant games)
+    suits: how many / what types of suits to use (environment variable, for variant games)
     optimizer: which optimizer to use
     mem_size: the maximum number of experiences to store per player
     max_steps: The max number of turns per game
@@ -45,8 +64,9 @@ class wrapper():
     discrete_agents: True means that there is a different agent for each player
       (False means that the next state in experiences is from P+1, rather than
        the state P sees on their next turn)
-    Double_DQN_version: Version of Double DQN to use (0 is disabled)
+    Double_DQN_version: Version of Double DQN to use (0 is disabled, 1 uses the 2010 paper, 2 uses 2015 paper)
     accelerated: Whether to make an accelerated training model (for GPU acceleration)
+    games_per_epoch: How many episodes are in each epoch (affects model sync frequency, saving the model, calculating statistics, plotting)
     
     """
   def __init__(self, name = None, discount = 0.9, lr = None, alpha = 1,
@@ -55,7 +75,7 @@ class wrapper():
           mode = 'standard', hidden_layers = [200,200,200,150,100], batch_size = 512,
           l1 = 0, optimizer = 'adagrad', mem_size = 2000, max_steps = 130,
           plot_frequency = 1, discrete_agents = True, Double_DQN_version = 2, 
-          accelerated = True):
+          accelerated = True, games_per_epoch = 100):
   
     self.name = name
     self.weights_dir = model_directory
@@ -74,7 +94,7 @@ class wrapper():
     self.hidden_layers = hidden_layers
     self.discrete_agents = discrete_agents
     self.epoch = 0
-    self.epoch_size = 100
+    self.epoch_size = games_per_epoch
     self.epoch_history = {}
     self.epoch_history['steps'] = []
     self.epoch_history['rewards'] = []
@@ -89,7 +109,7 @@ class wrapper():
     self.mode = mode
     self.l1 = l1
     self.Double_DQN_version = Double_DQN_version
-    self.optimizer = optimizer
+    self.optimizer = get_optimizer(optimizer, lr)
     self.action_map = self._create_action_map()
     self.action_space = len(self.action_map)
     self.action_totals = [0]*self.action_space
@@ -101,6 +121,7 @@ class wrapper():
     if self.name != None and os.path.exists(self.model_file):
       self.online_model = models.load_model(self.model_file)
       self.target_model = models.load_model(self.model_file)
+      self.target_model.name = 'target_'+self.target_model.name
     else:
       self.online_model = create_model(self.env, self.action_space, 
                                            self.name, self.learning_rate, 
@@ -123,8 +144,7 @@ class wrapper():
     self.player = []
     for playerID in range(self.players):
       self.player.append(agent(self.env, self.online_model, self.policy.choose_action, 
-                                     self.mem_size, self.action_map, playerID,
-                                     self.accelerated))
+                                     self.mem_size, self.action_map, playerID))
 
   def _freeze_target_model(self):
     for layer in self.target_model.layers:
@@ -193,6 +213,7 @@ class wrapper():
       if self.loss_history != []:
         loss = round(sum(self.loss_history)/len(self.loss_history), 5)
         self.epoch_history['loss'].append(loss)
+      else: self.epoch_history['loss'].append(np.NaN)
       self.epoch_history['steps'].append(steps)
       self.epoch_history['rewards'].append(rewards)
       self.epoch_history['discounted_rewards'].append(discounted_rewards)
@@ -290,7 +311,8 @@ class wrapper():
     ave_rewards = sum(eval_history['rewards'])/len(eval_history['steps']) 
     ave_discounted_rewards = sum(eval_history['discounted_rewards'])/len(eval_history['steps'])
     ave_rps = sum(eval_history['rps'])/len(eval_history['steps'])
-    print(f'Rewards:{ave_rewards}, Steps:{ave_steps}')
+    
+    print(f'Rewards:{ave_rewards}, Steps:{ave_steps}, Loss:{self.loss_history[-1]}')
     return ave_steps, ave_rewards, ave_discounted_rewards, ave_rps
 
 
@@ -334,6 +356,9 @@ class wrapper():
     ax1.set_ylabel('Average Steps in Episode', color = 'red')
     ax1.plot(episodes, self.epoch_history['steps'], color = 'red')
     ax1.set_ylim(top=80)
+    # ax1.set_ylabel('Average Loss in Episode', color = 'red')
+    # ax1.plot(episodes, self.epoch_history['loss'], color = 'red')
+    # ax1.set_ylim(top=0.015)
     ax2 = ax1.twinx()
     ax2.set_ylim(bottom=-1, top=10)
     ax2.set_ylabel('Average Reward', color = 'blue')

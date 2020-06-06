@@ -15,7 +15,7 @@ class agent():
   experience tuple for every round after first.  Has a final round function for
   storing it's previous obs, action, and (reward, and final obs) tuple returned by
   wrapper."""
-  def __init__(self, env, model, policy, mem_size, action_map, playerID, integrated):
+  def __init__(self, env, model, policy, mem_size, action_map, playerID):
     self.memory = SequentialDequeMemory(size = mem_size)
     self.env = env
     self.model = model
@@ -23,7 +23,6 @@ class agent():
     self.action_map = action_map
     self.ID = playerID
     self.obs = None
-    self.integrated = integrated
     
   def get_memory_batch(self, batch_size):
     """Get random experiences from memory for training."""
@@ -37,13 +36,10 @@ class agent():
     previous turn), chooses an action, stores the new obs, and passes the
   new obs back."""
     # If playing normally
-    # assert self.ID == obs[0]
+    assert self.ID == obs[0]
     helper_functions.timer['player'].start()
     if type(self.obs) != type(None):
-      if self.integrated:
-        experience = (self.obs, [self.policy_action, reward, 0], obs)
-      else:
-        experience = (self.obs, self.policy_action, reward, obs, 0)
+      experience = (self.obs, [self.policy_action, reward, 0], obs)
       self.add_to_memory(experience)
     self.obs = obs
     processed = np.reshape(obs,(1,-1))
@@ -63,11 +59,8 @@ class agent():
   def pass_final_obs(self, final_obs, reward):
     """Call this function when the game is done to pass the final obs (and 
     any associated rewards) to the player for storage."""
-    if type(self.obs) != type(None):
-      if self.integrated:
-        experience = (self.obs, [self.policy_action, reward, 1], final_obs)
-      else:
-        experience = (self.obs, self.policy_action, reward, final_obs, 1)
+    if type(self.obs) != type(None):  #The game can end before a players first turn
+      experience = (self.obs, [self.policy_action, reward, 1], final_obs)
       self.memory.add_to_memory(experience)
       self.obs = None
     
