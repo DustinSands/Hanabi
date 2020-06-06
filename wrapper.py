@@ -121,6 +121,7 @@ class wrapper():
     if self.name != None and os.path.exists(self.model_file):
       self.online_model = models.load_model(self.model_file)
       self.target_model = models.load_model(self.model_file)
+      self.target_model.name = 'target_'+self.target_model.name
     else:
       self.online_model = create_model(self.env, self.action_space, 
                                            self.name, self.learning_rate, 
@@ -143,8 +144,7 @@ class wrapper():
     self.player = []
     for playerID in range(self.players):
       self.player.append(agent(self.env, self.online_model, self.policy.choose_action, 
-                                     self.mem_size, self.action_map, playerID,
-                                     self.accelerated))
+                                     self.mem_size, self.action_map, playerID))
 
   def _freeze_target_model(self):
     for layer in self.target_model.layers:
@@ -213,6 +213,7 @@ class wrapper():
       if self.loss_history != []:
         loss = round(sum(self.loss_history)/len(self.loss_history), 5)
         self.epoch_history['loss'].append(loss)
+      else: self.epoch_history['loss'].append(np.NaN)
       self.epoch_history['steps'].append(steps)
       self.epoch_history['rewards'].append(rewards)
       self.epoch_history['discounted_rewards'].append(discounted_rewards)
@@ -310,7 +311,8 @@ class wrapper():
     ave_rewards = sum(eval_history['rewards'])/len(eval_history['steps']) 
     ave_discounted_rewards = sum(eval_history['discounted_rewards'])/len(eval_history['steps'])
     ave_rps = sum(eval_history['rps'])/len(eval_history['steps'])
-    print(f'Rewards:{ave_rewards}, Steps:{ave_steps}')
+    
+    print(f'Rewards:{ave_rewards}, Steps:{ave_steps}, Loss:{self.loss_history[-1]}')
     return ave_steps, ave_rewards, ave_discounted_rewards, ave_rps
 
 
@@ -354,6 +356,9 @@ class wrapper():
     ax1.set_ylabel('Average Steps in Episode', color = 'red')
     ax1.plot(episodes, self.epoch_history['steps'], color = 'red')
     ax1.set_ylim(top=80)
+    # ax1.set_ylabel('Average Loss in Episode', color = 'red')
+    # ax1.plot(episodes, self.epoch_history['loss'], color = 'red')
+    # ax1.set_ylim(top=0.015)
     ax2 = ax1.twinx()
     ax2.set_ylim(bottom=-1, top=10)
     ax2.set_ylabel('Average Reward', color = 'blue')

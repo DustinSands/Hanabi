@@ -12,7 +12,8 @@ def create_model(env, action_space, name = None, learning_rate = None,
                        hidden_layers = [100,50,50,50,20,20], l1 = 0.0001,
                        optimizer = 'adagrad'):
   """Builds the Q model to be used for hanabi."""
-  initializer = initializers.Ones()
+  initializer = initializers.glorot_uniform()
+  # initializer = initializers.Ones()
   model = models.Sequential()
   model.add(layers.Dense(hidden_layers[0], 
                          input_dim = (env.get_input_dim()),
