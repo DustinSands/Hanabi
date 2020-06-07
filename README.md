@@ -46,5 +46,5 @@ See the comments for the options under wrapper for a description of available
 options.
 
 ## In progress:
-- Full GPU acceleration (including target generation)
+- Multiple threads for data generation and training
 - Dueling DQN
