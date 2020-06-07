@@ -1,14 +1,16 @@
 # Hanabi
-The purpose of this code is to implement every version of reinforcement learning that I study so that I can 
+A framework that allows for implementing various reinforcement learning models that I created so that I could:
 
 - Learn RL
 - Understand each implementation
 - Compare their performance to deepen my understanding
+- Deepen my understanding of tensorflow / keras
 
 This will be done with an environment (created by me) that plays Hanabi, but should be generalizable to any environment.
 
-The current version only uses Q-learning.  One can create an instance by running
-main.py and then the following in the console:
+Currently Q-learning is implemented and benefits from GPU acceleration.  I get roughly 25k samples trained / second on my desktop, and 10k / sec on my laptop.  
+
+One can create an instance by running main.py and then the following in the console:
 
 ```
 instance = wrapper()
@@ -17,7 +19,7 @@ instance = wrapper()
 and train with
 
 ```
-instance.train(1)
+instance.train(10)
 ```
 ## Features:
 
