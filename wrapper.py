@@ -16,7 +16,7 @@ from behavior_policy import BehaviorPolicy
 from envs import Hanabi as hb
 
 import helper_functions, training_strategy
-from model import create_model
+from model import create_Q_model
 from agent import agent
 
 # CONFIG
@@ -74,7 +74,7 @@ class wrapper():
           'eps_decay':0.9999}, env = hb, suits = 'rgbyp', players = 3, 
           mode = 'standard', hidden_layers = [200,200,200,150,100], batch_size = 512,
           l1 = 0, optimizer = 'adagrad', mem_size = 2000, max_steps = 130,
-          plot_frequency = 1, discrete_agents = True, Double_DQN_version = 2, 
+          plot_frequency = 1, discrete_agents = True, Double_DQN_version = 1, 
           accelerated = True, games_per_epoch = 100):
   
     self.name = name
@@ -123,14 +123,18 @@ class wrapper():
       self.target_model = models.load_model(self.model_file)
       self.target_model.name = 'target_'+self.target_model.name
     else:
-      self.online_model = create_model(self.env, self.action_space, 
-                                           self.name, self.learning_rate, 
-                                           self.hidden_layers, self.l1, 
-                                           self.optimizer)
-      self.target_model = create_model(self.env, self.action_space, 
-                                           self.name, self.learning_rate, 
-                                           self.hidden_layers, self.l1, 
-                                           self.optimizer)
+      self.online_model = create_Q_model(self.env, self.action_space, 
+                                       self.optimizer, 
+                                       self.hidden_layers,
+                                       self.learning_rate, self.l1, 
+                                       'online_model')
+      self.online_model.name = 'online_model'
+      self.target_model = create_Q_model(self.env, self.action_space, 
+                                       self.optimizer, 
+                                       self.hidden_layers,
+                                       self.learning_rate, self.l1,
+                                       'target_model')
+      self.target_model.name = 'target_model'
     self._freeze_target_model()
     if self.accelerated:
       self.training_model = training_strategy.build_accelerated_model(self.Double_DQN_version, self.env.get_input_dim(), 

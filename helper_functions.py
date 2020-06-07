@@ -5,8 +5,20 @@ Created on Mon May  4 12:56:49 2020
 @author: Racehorse
 """
 import time
+import random
+
+import numpy as np
+import tensorflow as tf
 
 timer={}
+
+debug = 0
+
+def set_seed(seed = 0):
+  # Sets all sources of entropy to a fixed seed for accurate comparisons
+  random.seed(seed)
+  np.random.seed(seed)
+  tf.random.set_seed(seed)
 
 class time_tracker():
   """Tracks total time spent between start and stop.  
@@ -14,13 +26,24 @@ class time_tracker():
   def __init__(self):
     self.on = False
     self.total = 0
+    if debug:
+      self.start = debug_start
+      self.stop = debug_stop
   
   def start(self):
+    self.start_time = time.perf_counter()
+  
+  def stop(self):
+    self.stop_time = time.perf_counter()
+    elapsed = self.stop_time - self.start_time
+    self.total += elapsed
+    
+  def debug_start(self):
     assert self.on ==False
     self.on = True
     self.start_time = time.perf_counter()
   
-  def stop(self):
+  def debug_stop(self):
     assert self.on == True
     self.on = False
     self.stop_time = time.perf_counter()
@@ -174,9 +197,9 @@ def print_integrated_times():
   print(f'Replay time:{percent["replay"]}%')
   print(f'-Recall Time:{percent["recall"]}%')
   print(f'-Prep Time:{percent["prep"]}%')
-  print(f'--Making arrays Time:{percent["prep_1"]}%')
-  print(f'--ARD Time:{percent["prep_2"]}%')
-  print(f'--Inputs Time:{percent["prep_3"]}%')
+  print(f'--Zip Time:{percent["prep_1"]}%')
+  print(f'--State Time:{percent["prep_2"]}%')
+  print(f'--ARD Time:{percent["prep_3"]}%')
   print(f'-Train Time:{percent["train"]}%')
   print(f'Plot time:{percent["plot"]}%')
   for name in timer_list:

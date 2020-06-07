@@ -8,12 +8,10 @@ import random
 
 from keras import models, optimizers, layers, regularizers, losses, initializers
 
-def create_model(env, action_space, name = None, learning_rate = None, 
-                       hidden_layers = [100,50,50,50,20,20], l1 = 0.0001,
-                       optimizer = 'adagrad'):
+def create_Q_model(env, action_space, optimizer, hidden_layers, 
+                 learning_rate = None, l1 = 0.0001, name = None):
   """Builds the Q model to be used for hanabi."""
   initializer = initializers.glorot_uniform()
-  # initializer = initializers.Ones()
   model = models.Sequential()
   model.add(layers.Dense(hidden_layers[0], 
                          input_dim = (env.get_input_dim()),
@@ -39,9 +37,6 @@ def create_model(env, action_space, name = None, learning_rate = None,
                            kernel_regularizer=regularizers.l1(l1),
                          kernel_initializer = initializer, 
                          bias_initializer = initializer))
-
-  if learning_rate== None:
-    model.compile(loss=losses.mean_absolute_error, optimizer = optimizer)
-  else:
-    model.compile(loss=losses.mean_absolute_error, optimizer = optimizer)
+    
+  model.compile(loss=losses.mean_absolute_error, optimizer = optimizer)
   return model
